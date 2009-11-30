@@ -12,16 +12,16 @@ h2. Basic Use
 
 You will need tables that include the following fields, or fields like them. The table and field names don't matter, but you basically need a table for the items being rated and a table to store each rating, with at least these fields:
 
-@items@ table:
-* @id@
-* @ratings_count@
-* @mean_rating@
-* @bayesian_rating@
+*items* table:
+* id
+* ratings_count
+* mean_rating
+* bayesian_rating
 
-@item_ratings@ table:
-* @id@
-* @item_id@
-* @rating@
+*item_ratings* table:
+* id
+* item_id
+* rating
 
 Then you need to include the Behavior in your model. You can specify the names of any fields that differ from the above structure:
 
@@ -51,10 +51,10 @@ The thing I'm calling a "Bayesian Average" might be better named otherwise. This
 </code>
 </pre>
 
-* @C@ is the average number of ratings an item receives
-* @m@ is the average rating across all items
-* @n@ is the number of ratings the current item
-* @j@ is the average rating for the current item
+* _C_ is the average number of ratings an item receives
+* _m_ is the average rating across all items
+* _n_ is the number of ratings the current item
+* _j_ is the average rating for the current item
 
 I'm mot a mathematician. I stole it from the shoulders of Giants and was using it for some time before building this Behavior.
 
