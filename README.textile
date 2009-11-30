@@ -12,19 +12,21 @@ h2. Basic Use
 
 You will need tables that include the following fields, or fields like them. The table and field names don't matter, but you basically need a table for the items being rated and a table to store each rating, with at least these fields:
 
-*items* table:
-* id
-* ratings_count
-* mean_rating
-* bayesian_rating
+@items@ table:
+* @id@
+* @ratings_count@
+* @mean_rating@
+* @bayesian_rating@
 
-*item_ratings* table:
-* id
-* item_id
-* rating
+@item_ratings@ table:
+* @id@
+* @item_id@
+* @rating@
 
 Then you need to include the Behavior in your model. You can specify the names of any fields that differ from the above structure:
 
+<pre>
+<code>
   var $actsAs = array('BayesianAverage.BayesianAverageable' => array(
       'fields' => array(
           'itemId' => 'item_id',
@@ -34,33 +36,43 @@ Then you need to include the Behavior in your model. You can specify the names o
           'bayesianRating' => 'bayesian_rating',
       )
   ));
+</code>
+</pre>
 
-The rest is done by magic. The ratings_count, mean_rating, and bayesian_rating will all be populated for you. When you want to order by rating, order by bayesian_rating instead.
-
-h2. Increased Performance
-
-An important aspect of calculating Bayesian averages is that the constant C and total mean m must remain consistent for all items. To this end, the behavior must occasionally recalculate the Bayesian averages for all items in your "item" model.
-
-Every half hour (or half the lifetime of your app's default cache), we compare a freshly calculated constant C and mean m against a cache of those values. If the difference between the two is more than 10%, the freshly calculated values replace the previous cache and the Bayesian averages are updated for all items; otherwise, the cached values continue to be used for the next half hour.
-
-You can escape the performance problem of occasionally having to recalculate all Bayesian averages by setting the value of the constant C and the mean m when you introduce the behavior from your model. For example, if you notice a trend that most items average about 50 votes and the mean vote is 3.5, you can set the values of C and m to be 50 and 3.5 respectively:
-
-  var $actsAs = array('BayesianAverage.BayesianAverageable' => array(
-      'C' => 50,
-      'm' => 3.5,
-  ));
-
-Whether calculated or declared explicitly, if the value of C is 2 or below, the Bayesian average has no serious value. So that you can continue to order by the bayesian_rating field, the mean rating will be used instead.
+The rest is done by magic. The @ratings_count@, @mean_rating@, and @bayesian_rating@ will all be populated for you. When you want to order by rating, order by @bayesian_rating@ instead.
 
 h2. "Bayesian Average" Formula
 
 The thing I'm calling a "Bayesian Average" might be better named otherwise. This is the actual formula I'm using:
 
+<pre>
+<code>
   (n / (n + C)) * j + (C / (n + C)) * m
+</code>
+</pre>
 
-* C is the average number of ratings an item receives
-* m is the average rating across all items
-* n is the number of ratings the current item
-* j is the average rating for the current item
+* @C@ is the average number of ratings an item receives
+* @m@ is the average rating across all items
+* @n@ is the number of ratings the current item
+* @j@ is the average rating for the current item
 
 I'm mot a mathematician. I stole it from the shoulders of Giants and was using it for some time before building this Behavior.
+
+h2. Increased Performance
+
+An important aspect of calculating Bayesian averages is that the constant _C_ and total mean _m_ must remain consistent for all items. (See the "Formula" section to understand what these variables mean.) To this end, the behavior must occasionally recalculate the Bayesian averages for all items in your "item" model.
+
+Every half hour (or half the lifetime of your app's default cache lifetime), we compare a freshly calculated constant _C_ and mean _m_ against a cache of those values. If the difference between the two is more than 10%, the freshly calculated values replace the previous cache and the Bayesian averages are updated for all items; otherwise, the cached values continue to be used for the next half hour until the difference is more prominent.
+
+You can escape the performance problem of occasionally having to recalculate all Bayesian averages by setting the value of the constant _C_ and the mean _m_ when you introduce the behavior from your model. For example, if you notice a trend that most items average about 50 ratings and the mean rating is 3.5, you can set the values of _C_ and _m_ to be 50 and 3.5 respectively:
+
+<pre>
+<code>
+  var $actsAs = array('BayesianAverage.BayesianAverageable' => array(
+      'C' => 50,
+      'm' => 3.5,
+  ));
+</code>
+</pre>
+
+Whether calculated or declared explicitly, if the value of _C__ is 2 or below, the Bayesian average has no serious value. So that you can continue to order by the @bayesian_rating@ field, the mean rating will be used instead.
