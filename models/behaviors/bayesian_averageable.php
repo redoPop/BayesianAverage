@@ -36,6 +36,7 @@ class BayesianAverageableBehavior extends ModelBehavior {
 		'cache' => array(
 			'config' => null,
 			'prefix' => 'BayesianAverage_',
+			'calculationDuration' => 1800, # seconds to wait before recalculating C & m
 		),
 	);
 
@@ -89,7 +90,7 @@ class BayesianAverageableBehavior extends ModelBehavior {
 	}
 
 /**
- * Get the "item" nodel associated with this "rating" model.
+ * Get the "item" model associated with this "rating" model.
  *
  * @param object $Model "Rating" model
  * @return object Associated "item" model
@@ -186,20 +187,23 @@ class BayesianAverageableBehavior extends ModelBehavior {
  * Updates the Bayesian average(s) for affected items.
  *
  * @param object $Model Ratings model this applies to
- * @param number $itemId ID of item whose ratings are being saved
+ * @param number $itemId ID of item whose ratings are being saved. Updates everything if this is false.
  * @access public
  */
-	function updateBayesianAverage(&$Model, $itemId) {
+	function updateBayesianAverage(&$Model, $itemId = false) {
 		extract($this->__settings[$Model->alias]);
 		$ItemModel =& $this->getItemModel($Model);
 		$updateConditions = array($ItemModel->alias.'.'.$fields['ratingsCount'].' >' => '0');
-		$updateSingle = true; # whether to update Bayesian avg just for this itemId or all items
+		$updateSingle = ($itemId ? true : false); # whether to update Bayesian avg just for this itemId or all items
 
 		// Get constant/mean average from cache or db if either is inexplicit
 		if (!$C || !$m) {
 			$cache['data'] = Cache::read($cache['prefix'].$Model->alias, $cache['config']);
-			$cacheSettings = Cache::settings();
-			if (!$cache['data'] || time() - $cache['data']['time'] > $cacheSettings['duration']/2) {
+			if (!$cache['calculationDuration']) {
+				$cacheSettings = Cache::settings();
+				$cache['calculationDuration'] =  $cacheSettings['duration']/2;
+			}
+			if (!$cache['data'] || time() - $cache['data']['time'] > $cache['calculationDuration']) {
 				// Calculate latest Constant and mean from the database
 				$allStats = $ItemModel->find('first', array(
 					'fields' => array("AVG({$ItemModel->alias}.{$fields['ratingsCount']}) C", "AVG({$ItemModel->alias}.{$fields['meanRating']}) m"),
