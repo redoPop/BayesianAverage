@@ -243,7 +243,7 @@ class BayesianAverageableBehavior extends ModelBehavior {
 		}
 
 		if ($updateSingle) {
-			$updateConditions[$ItemModel->primaryKey] = $itemId;
+			$updateConditions["{$ItemModel->alias}.{$ItemModel->primaryKey}"] = $itemId;
 		}
 
 		// Update the affected items' bayesian averages
