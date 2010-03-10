@@ -96,11 +96,19 @@ class BayesianAverageableBehavior extends ModelBehavior {
  * @return object Associated "item" model
  */
 	function &getItemModel(&$Model) {
-		if ($this->__settings[$Model->alias]['itemModel']) {
-			return $Model->{$this->__settings[$Model->alias]['itemModel']};
+		$itemModel = $this->__settings[$Model->alias]['itemModel'];
+		
+		if ($itemModel) {
+			if (isset($Model->{$itemModel})) {
+				return $Model->{$itemModel};
+			} else {
+				App::import('Model', $itemModel);
+				$Model->{$itemModel} =& new $itemModel();
+				return $Model->{$itemModel};
+			}
 		} else {
-			$this->__settings[$Model->alias]['itemModel'] = $this->getColumnAssociation($Model, $this->__settings[$Model->alias]['fields']['itemId']);
-			return $Model->{$this->__settings[$Model->alias]['itemModel']};
+			$itemModel = $this->getColumnAssociation($Model, $this->__settings[$Model->alias]['fields']['itemId']);
+			return $Model->{$itemModel};
 		}
 	}
 
