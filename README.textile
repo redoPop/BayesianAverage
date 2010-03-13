@@ -1,45 +1,125 @@
 h1. BayesianAverage plugin for CakePHP
 
-This CakePHP plugin provides a Behavior that calculates the Bayesian averages of all items' ratings, in addition to the unweighted averages of their ratings.
+This CakePHP plugin provides a Behavior that calculates the Bayesian averages and unweighted averages of item ratings, so that you can meaningfully sort items by their rating.
 
 *Cool. What?*
 
 Let's say you have a book rating site. Two of the books are "Slaughterhouse-Five", and "I Love My Mommy" by some guy no one's heard of. "Slaughterhouse-Five" got 399 5-star ratings, and one 3-star rating. "I Love My Mommy" got a single rating of 5 stars by the author's mother. Because of Slaughterhouse's one 3-star rating, its mean rating has become lower than that of "I Love My Mommy", despite the fact that it has 398 more 5-star ratings than that book. In a list of books ordered by mean rating, "I Love My Mommy" would be considered "better" than "Slaughterhouse-Five".
 
-This CakePHP plugin provides a Behavior you can use to avoid this sort of embarrassment by calculating what some call the "Bayesian average" or "Bayesian estimate", which weighs the mean rating of an item toward the mean rating of all items in proportion to the number of votes it receives in relation to the average number of votes an item receives.
+This CakePHP plugin provides a Behavior you can use to avoid such embarrassment by calculating what some call the "Bayesian average" or "Bayesian estimate", which weighs the mean rating of an item toward the mean rating of all items in proportion to the number of votes it receives in relation to the average number of votes an item receives. Effectively, it produces a number that represents the item's ratings in the context of other items in the table, so sorting by it is more meaningful.
 
 h2. Basic Use
 
-You will need tables that include the following fields, or fields like them. The table and field names don't matter, but you basically need a table for the items being rated and a table to store each rating, with at least these fields:
+This plugin should be deployed to the directory @/app/plugins/bayesian_average@, so that this document sits in the path @/app/plugins/bayesian_average/README.textile@
+
+Your database should contain a table for the items being rated, and another table to store each rating, with the following fields:
 
 *items* table:
 * id
-* ratings_count
-* mean_rating
-* bayesian_rating
+* ratings_count (an integer)
+* mean_rating (a decimal or float)
+* bayesian_rating (a decimal or float)
 
 *item_ratings* table:
 * id
 * item_id
 * rating
 
-Then you need to include the Behavior in your model. You can specify the names of any fields that differ from the above structure:
+The actual table and field names don't matter; the names of any fields that differ from the above structure can be specified in the configuration array of the BayesianAverage Behavior when it is imported into the ItemRating (or equivalent) model:
 
 <pre>
 <code>
-  var $actsAs = array('BayesianAverage.BayesianAverageable' => array(
-      'fields' => array(
-          'itemId' => 'item_id',
-          'rating' => 'rating',
-          'ratingsCount' => 'ratings_count',
-          'meanRating' => 'mean_rating',
-          'bayesianRating' => 'bayesian_rating',
-      )
+  class ItemRating extends AppModel {
+      ...
+
+      var $actsAs = array('BayesianAverage.BayesianAverageable' => array(
+          'fields' => array(
+              'itemId' => 'item_id', # foreign key in "item_ratings", linking it to "items"
+              'rating' => 'rating', # field in "item_ratings" that contains that rating's value
+              'ratingsCount' => 'ratings_count', # field in "items" used to store ratings count for an item
+              'meanRating' => 'mean_rating', # field in "items" used to store unweighted average rating for an item
+              'bayesianRating' => 'bayesian_rating', # field in "items" used to store Bayesian average for an item
+          )
+      ));
+
+      ...
+</code>
+</pre>
+
+You must also *make sure that caching is enabled* on your production environment. The line @Configure::write('Cache.disable', true);@ should be commented out in @/app/config/core.php@.
+
+The rest is done by magic. The @ratings_count@, @mean_rating@, and @bayesian_rating@ will all be populated for you when ratings are saved. When you want to order your items by rating, order by @bayesian_rating@ instead.
+
+Read on for tips on how to get the best performance out of this plugin.
+
+h2. Basic Performance: Indexing and Normalizing Items
+
+There are several things you can do to increase the performance of this plugin and guard against potential performance bottlenecks. The most basic of these is to create a single MySQL table index for the _two_ fields @ratings_count@ and @mean_rating@ (or whatever they're named in your "item_ratings" table schema).
+
+If you have a wide "items" table (i.e., if it has a lot of columns in addition to the 4 outlined in "Basic Use"), you can get a further performance boost by separating the @ratings_count@, @mean_rating@, and @bayesian_rating@ fields into an "item_averages" table, with an @item_id@ field acting as a common primary key between the "item_ratings" and "item_averages" tables. You would then need to modify the Behavior's configuration array to declare this:
+
+<pre>
+<code>
+  class ItemRating extends AppModel {
+      ...
+      var $actsAs = array('BayesianAverage.BayesianAverageable' => array(
+          'fields' => array('itemId' => 'item_id'),
+          'itemModel' => 'ItemAverage',
+      ));
+      ...
+</code>
+</pre>
+
+h2. Intermediate Performance: Cache Configuration
+
+An important aspect of calculating Bayesian averages is that the constant _C_ and total mean _m_ must remain consistent for all items. (See the "Bayesian Average Formula" section of this document to understand what these variables mean.) To this end, the behavior must occasionally recalculate the Bayesian averages for all items in your "item" model.
+
+Every half hour (or half your app's default cache lifetime), the plugin compares a freshly calculated constant _C_ and mean _m_ against a cache of those values. If the difference between the two is more than 10%, the freshly calculated values replace the previous cache and the Bayesian averages are updated for all items; otherwise, the cached values continue to be used for the next half hour until the difference is more prominent.
+
+As the number of ratings in your database increases, the cache must be replaced -- and item averages must be recalculated -- less and less frequently, resulting in better performance. However, CakePHP periodically destroys cache files, in which case the plugin must recreate them. You can set up a cache configuration in CakePHP to make sure that cache files are very rarely destroyed.
+
+h3. Creating and Applying a CakePHP Cache Configuration
+
+To create an annual cache configuration (one that will keep cache files for an entire year), open @/app/config/core.php@ and add the following:
+
+<pre>
+<code>
+  Cache::config('annual', array(
+      'engine' => 'File',
+      'duration'=> '+1 year',
   ));
 </code>
 </pre>
 
-The rest is done by magic. The @ratings_count@, @mean_rating@, and @bayesian_rating@ will all be populated for you. When you want to order by rating, order by @bayesian_rating@ instead.
+You must now modify the Behavior's configuration array to apply this cache configuration:
+
+<pre>
+<code>
+  var $actsAs = array('BayesianAverage.BayesianAverageable' => array(
+      'fields' => array('itemId' => 'item_id'),
+      'cache' => array('config' => 'annual'),    // <= this line!
+  ));
+</code>
+</pre>
+
+Lastly, double check that caching is enabled for your app. The line @Configure::write('Cache.disable', true);@ should be commented out in @/app/config/core.php@
+
+h2. Advanced Performance: Manual Configuration of Constants
+
+By the time you have a sizable number of items and ratings, _C_ and _m_ should be involatile, so that a recalculation of all items' averages will not occur unless the cache is destroyed. However, you can escape the potential performance problem entirely by setting the value of the constant _C_ and the mean _m_ directly in the Behavior's configuration array.
+
+To do this, simply remember that _C_ is the average number of votes you expect per item, and _m_ is the average rating an item is given. For example, if you notice a trend that most items average about 50 ratings and the mean rating is 3.5, you can set the values of _C_ and _m_ to be 50 and 3.5 respectively:
+
+<pre>
+<code>
+  var $actsAs = array('BayesianAverage.BayesianAverageable' => array(
+      'C' => 50,
+      'm' => 3.5,
+  ));
+</code>
+</pre>
+
+Whether calculated or declared explicitly, if the value of _C_ is 2 or below, the Bayesian average has no serious value. So that you can continue to order by the @bayesian_rating@ field, the mean rating will be used instead.
 
 h2. "Bayesian Average" Formula
 
@@ -58,21 +138,57 @@ The thing I'm calling a "Bayesian Average" might be better named otherwise. This
 
 I'm mot a mathematician. I stole it from the shoulders of Giants and was using it for some time before building this Behavior.
 
-h2. Increased Performance
+h2. All Configuration Options
 
-An important aspect of calculating Bayesian averages is that the constant _C_ and total mean _m_ must remain consistent for all items. (See the "Formula" section to understand what these variables mean.) To this end, the behavior must occasionally recalculate the Bayesian averages for all items in your "item" model.
-
-Every half hour (or half the lifetime of your app's default cache lifetime), we compare a freshly calculated constant _C_ and mean _m_ against a cache of those values. If the difference between the two is more than 10%, the freshly calculated values replace the previous cache and the Bayesian averages are updated for all items; otherwise, the cached values continue to be used for the next half hour until the difference is more prominent.
-
-You can escape the performance problem of occasionally having to recalculate all Bayesian averages by setting the value of the constant _C_ and the mean _m_ when you introduce the behavior from your model. For example, if you notice a trend that most items average about 50 ratings and the mean rating is 3.5, you can set the values of _C_ and _m_ to be 50 and 3.5 respectively:
+To show the proper syntax of its configuration options, here is how the Behavior would look if imported with every setting applied:
 
 <pre>
 <code>
-  var $actsAs = array('BayesianAverage.BayesianAverageable' => array(
-      'C' => 50,
-      'm' => 3.5,
-  ));
+  class ItemRating extends AppModel {
+      ...
+
+      var $actsAs = array('BayesianAverage.BayesianAverageable' => array(
+          'fields' => array(
+              'itemId' => 'item_id',
+              'rating' => 'rating',
+              'ratingsCount' => 'ratings_count',
+              'meanRating' => 'mean_rating',
+              'bayesianRating' => 'bayesian_rating',
+          ),
+          'itemModel' => 'Item',
+          'C' => 50,
+          'm' => 3.5,
+          'cache' => array(
+            'config' => null,
+            'prefix' => 'BayesianAverage_',
+            'calculationDuration' => 1800,
+          ),
+      ));
+
+      ...
 </code>
 </pre>
 
-Whether calculated or declared explicitly, if the value of _C__ is 2 or below, the Bayesian average has no serious value. So that you can continue to order by the @bayesian_rating@ field, the mean rating will be used instead.
+h3. fields
+
+This array is used to configure the Behavior according to the field names in your table schema: itemId is the name of the foreign key that establishes the link between your "item_ratings" and "items" tables, etc. Its use is illustrated in the "Basic Use" section of this document.
+
+h3. itemModel
+
+This is the name of the model that contains the @ratings_count@, @mean_rating@, and @bayesian_rating@ for each item. Usually, the plugin is able to determine the item model from its relationship with the rating model, but sometimes this relationship doesn't exist. The "Basic Performance" section of this document describes how this field can be used to help normalize the items table for increased performance.
+
+If there is no relationship between the Rating model and "itemModel", the behavior will assume that "itemId" (from the "fields" array) is a common foreign key to both models.
+
+h3. C and m
+
+The numbers C and m represent the average number of votes you expect per item, and the average rating an item is given, respectively. The "Advanced Performance" section of this document describes how these values can be used to further increase performance once you have a sufficient pool of data.
+
+h3. cache
+
+These settings control how the plugin uses its cache files.
+
+* @config@ - string name of the CakePHP cache configuration to use. If this value is null, the default cache configuration will be used.
+* @prefix@ - string prefix prepended to the plugin's cache files. You shouldn't need to change this unless it causes a naming conflict with other cache files.
+* @calculationDuration@ - how long the plugin should wait, in seconds, before recalculating the values _C_ and _m_ to see if all items need to be updated.
+
+The "Intermediate Performance" section of this document shows how to use the cache configuration settings to make sure CakePHP destroys cache data as infrequently as possible.

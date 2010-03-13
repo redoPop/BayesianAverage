@@ -31,6 +31,7 @@ class BayesianAverageableBehavior extends ModelBehavior {
 			'bayesianRating' => 'bayesian_rating',
 		),
 		'itemModel' => false,
+		'useForeignKey' => false, # if true, use itemId to find itemModel's primary key (don't set this manually)
 		'C' => false,
 		'm' => false,
 		'cache' => array(
@@ -39,6 +40,14 @@ class BayesianAverageableBehavior extends ModelBehavior {
 			'calculationDuration' => 1800, # seconds to wait before recalculating C & m
 		),
 	);
+
+/**
+ * Extra models imported into the behavior by the __getExtraModel method.
+ *
+ * @var array
+ * @access private
+ */
+	var $__extraModels = array();
 
 /**
  * Settings indexed by model name.
@@ -60,7 +69,7 @@ class BayesianAverageableBehavior extends ModelBehavior {
 			if (isset($Model->data[$Model->alias][$fields['itemId']])) {
 				$itemId = $Model->data[$Model->alias][$fields['itemId']];
 			} else {
-				$itemId = $Model->field($fields['itemId'], array("{$Model->alias}.id" => $Model->id));
+				$itemId = $Model->field($fields['itemId'], array("{$Model->alias}.{$Model->primaryKey}" => $Model->id));
 			}
 
 			$this->recount($Model, $itemId);
@@ -94,20 +103,36 @@ class BayesianAverageableBehavior extends ModelBehavior {
  *
  * @param object $Model "Rating" model
  * @return object Associated "item" model
+ * @access public
  */
 	function &getItemModel(&$Model) {
 		$itemModel = $this->__settings[$Model->alias]['itemModel'];
-		
+		$field_itemId = $this->__settings[$Model->alias]['fields']['itemId'];
+
 		if ($itemModel) {
 			if (isset($Model->{$itemModel})) {
 				return $Model->{$itemModel};
 			} else {
-				App::import('Model', $itemModel);
-				$Model->{$itemModel} =& new $itemModel();
-				return $Model->{$itemModel};
+				$ExtraModel =& $this->__getExtraModel($itemModel);
+
+				// If this is our first time using the imported model
+				if (!$this->__settings[$Model->alias]['useForeignKey']) {
+					if (!$ExtraModel->schema($field_itemId)) {
+						trigger_error("BayesianAverage Error: {$itemModel}.{$field_itemId} doesn't exist.", E_USER_NOTICE);
+					}
+
+					$this->__settings[$Model->alias]['useForeignKey'] = true;
+				}
+
+				return $ExtraModel;
 			}
 		} else {
-			$itemModel = $this->getColumnAssociation($Model, $this->__settings[$Model->alias]['fields']['itemId']);
+			$itemModel = $this->getColumnAssociation($Model, $field_itemId);
+			if (!$itemModel) {
+				trigger_error("BayesianAverage Error: no relationship uses {$Model->alias}.{$field_itemId} as a foreign key.", E_USER_NOTICE);
+			}
+
+			$this->__settings[$Model->alias]['itemModel'] = $itemModel;
 			return $Model->{$itemModel};
 		}
 	}
@@ -129,8 +154,22 @@ class BayesianAverageableBehavior extends ModelBehavior {
 		));
 
 		$ItemModel =& $this->getItemModel($Model);
+
+		// If a foreign key is used to index items in ItemModel, then find the actual primary key
+		if ($this->__settings[$Model->alias]['useForeignKey']) {
+			$itemModelId = $ItemModel->field($ItemModel->primaryKey, array($field_itemId => $itemId));
+			if (!$itemModelId) {
+				// If the item doesn't exist, create it!
+				$ItemModel->create();
+				$itemModelId = NULL;
+			}
+		} else {
+			$itemModelId = $itemId;
+		}
+
 		$ItemModel->save(array($ItemModel->alias => array(
-			$ItemModel->primaryKey => $itemId,
+			$ItemModel->primaryKey => $itemModelId,
+			$field_itemId => $itemId,
 			$field_ratingsCount => $itemStats[0]['ratingsCount'],
 			$field_meanRating => $itemStats[0]['meanRating'],
 		)), array('validate' => false));
@@ -250,8 +289,13 @@ class BayesianAverageableBehavior extends ModelBehavior {
 			}
 		}
 
+		// Only update the data for one item
 		if ($updateSingle) {
-			$updateConditions["{$ItemModel->alias}.{$ItemModel->primaryKey}"] = $itemId;
+			if ($useForeignKey) {
+				$updateConditions["{$ItemModel->alias}.{$fields['itemId']}"] = $itemId;
+			} else {
+				$updateConditions["{$ItemModel->alias}.{$ItemModel->primaryKey}"] = $itemId;
+			}
 		}
 
 		// Update the affected items' bayesian averages
@@ -266,6 +310,28 @@ class BayesianAverageableBehavior extends ModelBehavior {
 			array($ItemModel->alias.'.'.$fields['bayesianRating'] => $formula),
 			$updateConditions
 		);
+	}
+
+/**
+ * Used by getItemModel to import extra models when no relationship exists
+ * between the Rating model and the "Item" model.
+ *
+ * @param object string $modelName name of model to import
+ * @return object Model
+ * @access private
+ */
+	function &__getExtraModel($modelName) {
+		if (!isset($this->__extraModels[$modelName])) {
+			if (!class_exists($modelName)) {
+				if (!App::import('Model', $modelName)) {
+					trigger_error("BayesianAverage Error: no such model: '{$modelName}'", E_USER_NOTICE);
+				}
+			}
+
+			$this->__extraModels[$modelName] =& new $modelName();
+		}
+
+		return $this->__extraModels[$modelName];
 	}
 
 }
