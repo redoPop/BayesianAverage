@@ -1,3 +1,9 @@
+h1. Not Maintained
+
+It's been a while since I last worked with CakePHP, and I haven't kept this repository up-to-date.
+
+If you'd like to maintain a fork, please shoot me an email and I'll drop a link here to point others in the right direction.
+
 h1. BayesianAverage plugin for CakePHP
 
 This CakePHP plugin provides a Behavior that calculates the Bayesian averages and unweighted averages of item ratings, so that you can meaningfully sort items by their rating.
